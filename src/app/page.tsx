@@ -12,7 +12,6 @@ import Link from 'next/link';
 export default function HomePage() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -29,10 +28,6 @@ export default function HomePage() {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  const handleUploadSuccess = () => {
-    setRefreshTrigger((prev) => prev + 1);
-  };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -93,10 +88,10 @@ export default function HomePage() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
             <div className="lg:col-span-1">
-              <MediaUpload onUploadSuccess={handleUploadSuccess} />
+              <MediaUpload onUploadSuccess={() => { }} />
             </div>
             <div className="lg:col-span-2">
-              <MediaGallery refreshTrigger={refreshTrigger} />
+              <MediaGallery userId={session.user.id} />
             </div>
           </div>
         )}
