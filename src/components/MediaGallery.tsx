@@ -2,54 +2,37 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import Link from 'next/link';
+
+interface MediaGalleryProps {
+    userId: string;
+}
 
 interface MediaItem {
     id: string;
     file_name: string;
-    media_type: string;
+    file_path: string;
     sha256_hash: string;
     created_at: string;
-    storage_path: string;
-    media_policies?: {
-        allow_ai_training: boolean;
-        allow_ai_editing: string;
-        allow_face_swap: boolean;
-        allow_commercial: boolean;
-    }[];
 }
 
-export default function MediaGallery({ userId }: { userId: string }) {
+export default function MediaGallery({ userId }: MediaGalleryProps) {
     const [mediaList, setMediaList] = useState<MediaItem[]>([]);
     const [loading, setLoading] = useState(true);
-    const [copiedId, setCopiedId] = useState<string | null>(null);
+    const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
-    const fetchUserMedia = async () => {
+    const fetchMedia = async () => {
         try {
             setLoading(true);
             const { data, error } = await supabase
                 .from('media')
-                .select(`
-          id,
-          file_name,
-          media_type,
-          sha256_hash,
-          created_at,
-          storage_path,
-          media_policies (
-            allow_ai_training,
-            allow_ai_editing,
-            allow_face_swap,
-            allow_commercial
-          )
-        `)
+                .select('*')
                 .eq('user_id', userId)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
             setMediaList(data || []);
-        } catch (err: any) {
-            console.error('Error fetching media:', err.message);
+        } catch (err) {
+            console.error('Error fetching media:', err);
         } finally {
             setLoading(false);
         }
@@ -57,91 +40,75 @@ export default function MediaGallery({ userId }: { userId: string }) {
 
     useEffect(() => {
         if (userId) {
-            fetchUserMedia();
+            fetchMedia();
         }
     }, [userId]);
 
-    const copyHash = (hash: string, id: string) => {
-        navigator.clipboard.writeText(hash);
-        setCopiedId(id);
-        setTimeout(() => setCopiedId(null), 2000);
+    const handleDownload = async (item: MediaItem) => {
+        try {
+            setDownloadingId(item.id);
+
+            const { data, error } = await supabase.storage
+                .from('media')
+                .download(item.file_path);
+
+            if (error) throw error;
+
+            // Create a blob URL and trigger an automatic file download
+            const blobUrl = URL.createObjectURL(data);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = item.file_name;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(blobUrl);
+        } catch (err) {
+            console.error('Failed to download image:', err);
+            alert('Could not download image. Ensure your Supabase storage permissions allow file downloads.');
+        } finally {
+            setDownloadingId(null);
+        }
     };
 
     if (loading) {
-        return (
-            <div className="w-full max-w-xl p-6 bg-white rounded-xl shadow-md border border-gray-200 text-center text-sm text-gray-500">
-                Loading anchored media assets...
-            </div>
-        );
+        return <div className="text-sm text-gray-500">Loading your registered media...</div>;
     }
 
     return (
-        <div className="max-w-xl w-full p-6 bg-white rounded-xl shadow-md border border-gray-200">
-            <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold text-gray-900">Your Protected Assets</h2>
-                <button
-                    onClick={fetchUserMedia}
-                    className="text-xs text-blue-600 hover:text-blue-800 font-semibold"
-                >
-                    Refresh List
-                </button>
-            </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+            <h2 className="text-lg font-bold text-gray-900 mb-4">Your Secured Media Library</h2>
 
             {mediaList.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-6">
-                    No media registered yet. Use the uploader above to protect your first asset.
-                </p>
+                <p className="text-sm text-gray-500">No media registered yet. Upload an image to get started.</p>
             ) : (
                 <div className="space-y-4">
-                    {mediaList.map((item) => {
-                        const policy = item.media_policies?.[0];
-                        return (
-                            <div
-                                key={item.id}
-                                className="p-4 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 transition flex flex-col gap-2"
-                            >
-                                <div className="flex justify-between items-start">
-                                    <div>
-                                        <h3 className="font-semibold text-sm text-gray-900">{item.file_name}</h3>
-                                        <p className="text-xs text-gray-500">
-                                            Anchored: {new Date(item.created_at).toLocaleDateString()} &bull; {item.media_type}
-                                        </p>
-                                    </div>
-                                    <Link
-                                        href={`/verify?hash=${item.sha256_hash}`}
-                                        className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800 hover:bg-blue-200 transition"
-                                    >
-                                        Verify Link &rarr;
-                                    </Link>
-                                </div>
-
-                                <div className="flex items-center gap-2 text-xs font-mono bg-white p-2 rounded border border-gray-200 overflow-hidden">
-                                    <span className="text-gray-500 shrink-0">SHA-256:</span>
-                                    <span className="truncate text-gray-700">{item.sha256_hash}</span>
-                                    <button
-                                        onClick={() => copyHash(item.sha256_hash, item.id)}
-                                        className="ml-auto shrink-0 text-blue-600 hover:text-blue-800 font-sans text-xs font-semibold"
-                                    >
-                                        {copiedId === item.id ? 'Copied!' : 'Copy'}
-                                    </button>
-                                </div>
-
-                                {policy && (
-                                    <div className="flex flex-wrap gap-1.5 pt-1">
-                                        <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${!policy.allow_ai_training ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>
-                                            AI Training: {!policy.allow_ai_training ? 'No' : 'Allowed'}
-                                        </span>
-                                        <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${!policy.allow_commercial ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>
-                                            Commercial: {!policy.allow_commercial ? 'No' : 'Allowed'}
-                                        </span>
-                                        <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                                            Edit: {policy.allow_ai_editing}
-                                        </span>
-                                    </div>
-                                )}
+                    {mediaList.map((item) => (
+                        <div
+                            key={item.id}
+                            className="p-4 border border-gray-100 bg-gray-50 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                        >
+                            <div className="space-y-1">
+                                <p className="text-sm font-semibold text-gray-800">{item.file_name}</p>
+                                <p className="text-xs font-mono text-gray-500 break-all">
+                                    Hash: {item.sha256_hash.slice(0, 16)}...{item.sha256_hash.slice(-8)}
+                                </p>
+                                <p className="text-[11px] text-gray-400">
+                                    Registered on {new Date(item.created_at).toLocaleDateString()}
+                                </p>
                             </div>
-                        );
-                    })}
+
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => handleDownload(item)}
+                                    disabled={downloadingId === item.id}
+                                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition shadow-sm"
+                                >
+                                    {downloadingId === item.id ? 'Downloading...' : 'Download Image'}
+                                </button>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             )}
         </div>
